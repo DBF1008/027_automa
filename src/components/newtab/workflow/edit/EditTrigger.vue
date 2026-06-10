@@ -14,6 +14,11 @@
     >
       Edit Triggers
     </ui-button>
+    <trigger-run-preview
+      :triggers="state.triggers"
+      :is-disabled="workflowIsDisabled"
+      class="my-3"
+    />
     <ui-button class="mt-4" @click="state.showParamModal = true">
       <v-remixicon name="riCommandLine" class="mr-2 -ml-1" />
       <span>Parameters</span>
@@ -43,11 +48,14 @@
   </div>
 </template>
 <script setup>
-import { onMounted, reactive } from 'vue';
+import { onMounted, reactive, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useRoute } from 'vue-router';
 import { nanoid } from 'nanoid/non-secure';
+import { useWorkflowStore } from '@/stores/workflow';
 import SharedWorkflowTriggers from '@/components/newtab/shared/SharedWorkflowTriggers.vue';
 import EditWorkflowParameters from './EditWorkflowParameters.vue';
+import TriggerRunPreview from './Trigger/TriggerRunPreview.vue';
 
 const props = defineProps({
   data: {
@@ -58,6 +66,12 @@ const props = defineProps({
 const emit = defineEmits(['update:data']);
 
 const { t } = useI18n();
+const route = useRoute();
+const workflowStore = useWorkflowStore();
+const workflowIsDisabled = computed(() => {
+  const wf = workflowStore.getById(route.params.id);
+  return wf?.isDisabled ?? false;
+});
 
 const state = reactive({
   showParamModal: false,

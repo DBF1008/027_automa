@@ -52,6 +52,12 @@
         </ui-list-item>
       </ui-list>
     </ui-popover>
+    <trigger-run-preview
+      v-if="triggersList.length > 0"
+      :triggers="triggersList"
+      :is-disabled="false"
+      class="mt-4 border-t border-gray-200 pt-4 dark:border-gray-700"
+    />
   </div>
 </template>
 <script setup>
@@ -60,6 +66,7 @@ import { useI18n } from 'vue-i18n';
 import { nanoid } from 'nanoid/non-secure';
 import cloneDeep from 'lodash.clonedeep';
 import TriggerDate from '../workflow/edit/Trigger/TriggerDate.vue';
+import TriggerRunPreview from '../workflow/edit/Trigger/TriggerRunPreview.vue';
 import TriggerCronJob from '../workflow/edit/Trigger/TriggerCronJob.vue';
 import TriggerInterval from '../workflow/edit/Trigger/TriggerInterval.vue';
 import TriggerVisitWeb from '../workflow/edit/Trigger/TriggerVisitWeb.vue';

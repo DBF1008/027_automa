@@ -38,6 +38,29 @@
       }
     }
   },
+  "triggerPreview": {
+    "title": "Trigger Preview",
+    "nextRuns": "Next scheduled runs",
+    "disabled": "Workflow is disabled. Enable it to see scheduled runs.",
+    "eventDriven": "Event-driven (no schedule)",
+    "noScheduled": "No scheduled triggers configured.",
+    "duplicate": "May fire at the same time as another trigger",
+    "duplicateWarning": "Possible duplicate: {reason}",
+    "neverFire": {
+      "invalidCron": "{type}: Invalid or empty cron expression — will never fire.",
+      "dateInPast": "{type}: Date is in the past — will never fire.",
+      "emptyDate": "{type}: No date specified — will never fire.",
+      "noDays": "{type}: No days selected — will never fire.",
+      "noTimes": "{type}: No times configured — will never fire.",
+      "invalidInterval": "{type}: Invalid interval — will never fire.",
+      "emptyUrl": "{type}: No URL specified — will never fire."
+    },
+    "reasons": {
+      "sameTime": "fire within 1 minute of each other",
+      "identicalCron": "identical cron schedules",
+      "overlappingUrl": "overlapping URL patterns"
+    }
+  },
   "storage": {
     "title": "Storage",
     "table": {
