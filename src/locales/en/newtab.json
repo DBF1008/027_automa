@@ -454,6 +454,17 @@
     "flowId": "Flow ID",
     "goBack": "Go back to \"{name}\"'s logs",
     "goWorkflow": "Go to workflow",
+    "compare": {
+      "title": "Compare runs",
+      "selectRun": "Select a run to compare",
+      "runA": "Current run (A)",
+      "runB": "Comparison run (B)",
+      "onlyInA": "Only in current run",
+      "onlyInB": "Only in comparison run",
+      "match": "Match",
+      "diff": "Different",
+      "diffCount": "{count} difference(s)"
+    },
     "startedDate": "Started date",
     "duration": "Duration",
     "selectAll": "Select all",

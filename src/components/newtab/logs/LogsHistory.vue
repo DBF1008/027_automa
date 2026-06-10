@@ -82,9 +82,9 @@
           >
             The workflow log is not saved
           </p>
-          <div class="w-full space-y-1 overflow-auto font-mono text-sm">
+          <div v-if="!compareMode" class="w-full space-y-1 overflow-auto font-mono text-sm">
             <div
-              v-for="(item, index) in history"
+              v-for="(item, index) in displayHistory"
               :key="item.id || index"
               :disabled="!ctxData[item.id]"
               :class="{ 'bg-box-transparent': item.id === state.itemId }"
@@ -176,10 +176,142 @@
             </div>
             <slot name="append-items" />
           </div>
+          <div v-else class="w-full space-y-1 overflow-auto font-mono text-sm">
+            <div
+              v-for="(entry, index) in displayHistory"
+              :key="index"
+              :class="[
+                {
+                  'bg-box-transparent':
+                    (entry.a || entry.b).id === state.itemId,
+                },
+                entry.diffStatus === 'diff'
+                  ? 'bg-yellow-900/20'
+                  : entry.diffStatus === 'only-a'
+                    ? 'bg-blue-900/15'
+                    : entry.diffStatus === 'only-b'
+                      ? 'bg-purple-900/15'
+                      : '',
+              ]"
+              class="hoverable group flex w-full cursor-default items-start rounded-md px-2 py-1 text-left focus:ring-0"
+              @click="setActiveLog(entry)"
+            >
+              <span
+                class="mr-2 flex shrink-0 items-center justify-center"
+                style="min-width: 22px"
+              >
+                <v-remixicon
+                  v-if="entry.diffStatus === 'match'"
+                  name="riCheckLine"
+                  size="16"
+                  class="text-green-400/50"
+                />
+                <v-remixicon
+                  v-else-if="entry.diffStatus === 'diff'"
+                  name="riErrorWarningLine"
+                  size="16"
+                  class="text-yellow-400"
+                />
+                <span
+                  v-else-if="entry.diffStatus === 'only-a'"
+                  class="text-xs font-bold text-blue-400"
+                >
+                  A
+                </span>
+                <span
+                  v-else
+                  class="text-xs font-bold text-purple-400"
+                >
+                  B
+                </span>
+              </span>
+              <div
+                style="min-width: 54px"
+                class="text-overflow mr-4 shrink-0 text-gray-400"
+              >
+                <template v-if="entry.a && entry.b && entry.diffFields?.duration">
+                  <span :title="dayjs(entry.a.timestamp).format('YYYY-MM-DDTHH:mm:ss.SSS')">
+                    {{ dayjs(entry.a.timestamp).format('HH:mm:ss') }}
+                  </span>
+                  <span class="block text-xs">
+                    A: {{ countDuration(0, entry.a.duration || 0).trim() }}
+                    / B: {{ countDuration(0, entry.b.duration || 0).trim() }}
+                  </span>
+                </template>
+                <template v-else>
+                  <span
+                    v-if="(entry.a || entry.b).timestamp"
+                    :title="dayjs((entry.a || entry.b).timestamp).format('YYYY-MM-DDTHH:mm:ss.SSS')"
+                  >
+                    {{ dayjs((entry.a || entry.b).timestamp).format('HH:mm:ss') }}
+                    {{ `(${countDuration(0, (entry.a || entry.b).duration || 0).trim()})` }}
+                  </span>
+                  <span v-else>
+                    {{ countDuration(0, (entry.a || entry.b).duration || 0) }}
+                  </span>
+                </template>
+              </div>
+              <span
+                :class="logsType[(entry.a || entry.b).type]?.color"
+                :title="(entry.a || entry.b).type"
+                class="text-overflow w-2/12 shrink-0"
+              >
+                <v-remixicon
+                  :name="logsType[(entry.a || entry.b).type]?.icon"
+                  size="18"
+                  class="-mr-1 inline-block align-text-top"
+                />
+                {{ (entry.a || entry.b).name }}
+              </span>
+              <span
+                :title="`${t('common.description')} (${(entry.a || entry.b).description})`"
+                class="text-overflow ml-2 w-2/12 shrink-0"
+              >
+                {{ (entry.a || entry.b).description }}
+                <span
+                  v-if="entry.diffFields?.description"
+                  class="block text-xs text-yellow-300/70"
+                >
+                  B: {{ entry.b?.description }}
+                </span>
+              </span>
+              <div class="ml-2 flex-1 text-sm leading-tight">
+                <p
+                  v-if="!entry.diffFields?.message"
+                  class="line-clamp text-gray-600 dark:text-gray-200"
+                >
+                  {{ (entry.a || entry.b).message }}
+                </p>
+                <template v-else>
+                  <p class="line-clamp text-gray-200">
+                    <span class="mr-1 text-xs text-blue-400">A:</span>
+                    {{ entry.a?.message }}
+                  </p>
+                  <p class="line-clamp text-yellow-300/80">
+                    <span class="mr-1 text-xs text-purple-400">B:</span>
+                    {{ entry.b?.message }}
+                  </p>
+                </template>
+              </div>
+              <router-link
+                v-if="!isRunning && getBlockPath((entry.a || entry.b).blockId)"
+                v-show="currentLog.workflowId && (entry.a || entry.b).blockId"
+                :to="getBlockPath((entry.a || entry.b).blockId)"
+              >
+                <v-remixicon
+                  name="riExternalLinkLine"
+                  size="20"
+                  title="Go to block"
+                  class="invisible ml-2 cursor-pointer text-gray-300 group-hover:visible"
+                />
+              </router-link>
+            </div>
+            <slot name="append-items" />
+          </div>
         </div>
       </div>
       <div
-        v-if="currentLog.history.length >= 25"
+        v-if="(compareMode ? displayRecordCount : currentLog.history.length) >= 25"
         class="mt-4 lg:flex lg:items-center lg:justify-between"
       >
         <div class="mb-4 lg:mb-0">
@@ -195,14 +327,14 @@
           </select>
           {{
             t('components.pagination.text2', {
-              count: filteredLog.length,
+              count: displayRecordCount,
             })
           }}
         </div>
         <ui-pagination
           v-model="pagination.currentPage"
           :per-page="pagination.perPage"
-          :records="filteredLog.length"
+          :records="displayRecordCount"
         />
       </div>
     </div>
@@ -261,6 +393,12 @@
           </tbody>
         </table>
       </div>
+      <div v-if="compareMode" class="flex items-center px-4 pb-2">
+        <ui-select v-model="state.activeCompareRun" class="w-full">
+          <option value="a">{{ t('log.compare.runA') }}</option>
+          <option value="b">{{ t('log.compare.runB') }}</option>
+        </ui-select>
+      </div>
       <div class="flex items-center px-4 pb-4">
         <p>Log data</p>
         <div class="grow" />
@@ -289,6 +427,10 @@ import dayjs from '@/lib/dayjs';
 import { getBlocks } from '@/utils/getSharedData';
 import { countDuration, fileSaver } from '@/utils/helper';
 import { dataExportTypes, messageHasReferences } from '@/utils/shared';
+import {
+  alignHistories,
+  buildComparisonExportData,
+} from '@/utils/logCompare';
 import objectPath from 'object-path';
 import Papa from 'papaparse';
 import {
@@ -296,6 +438,7 @@ import {
   defineAsyncComponent,
   shallowReactive,
   shallowRef,
+  watch,
 } from 'vue';
 import { useI18n } from 'vue-i18n';
 
@@ -318,6 +461,18 @@ const props = defineProps({
     default: null,
   },
   isRunning: Boolean,
+  compareMode: {
+    type: Boolean,
+    default: false,
+  },
+  compareLog: {
+    type: Object,
+    default: null,
+  },
+  compareCtxData: {
+    type: Object,
+    default: () => ({}),
+  },
 });
 
 const files = {
@@ -370,12 +525,14 @@ const state = shallowReactive({
   itemId: '',
   search: '',
   activeTab: 'all',
+  activeCompareRun: 'a',
 });
 const pagination = shallowReactive({
   perPage: 25,
   currentPage: 1,
 });
 const activeLog = shallowRef(null);
+const activeAlignedEntry = shallowRef(null);
 
 const translatedLog = computed(() =>
   props.currentLog.history.map(translateLog)
@@ -394,6 +551,37 @@ const history = computed(() =>
     (pagination.currentPage - 1) * pagination.perPage,
     pagination.currentPage * pagination.perPage
   )
+);
+const translatedCompareLog = computed(() =>
+  props.compareMode && props.compareLog
+    ? props.compareLog.history.map(translateLog)
+    : []
+);
+const alignedEntries = computed(() =>
+  props.compareMode
+    ? alignHistories(translatedLog.value, translatedCompareLog.value)
+    : []
+);
+const filteredAligned = computed(() => {
+  if (!props.compareMode) return [];
+  const query = state.search.toLocaleLowerCase();
+  return alignedEntries.value.filter((entry) => {
+    const item = entry.a || entry.b;
+    return (
+      item.name.toLocaleLowerCase().includes(query) ||
+      item.description?.toLocaleLowerCase().includes(query)
+    );
+  });
+});
+const displayHistory = computed(() => {
+  const source = props.compareMode ? filteredAligned.value : filteredLog.value;
+  return source.slice(
+    (pagination.currentPage - 1) * pagination.perPage,
+    pagination.currentPage * pagination.perPage
+  );
+});
+const displayRecordCount = computed(() =>
+  props.compareMode ? filteredAligned.value.length : filteredLog.value.length
 );
 const errorBlock = computed(() => {
   if (props.currentLog.status !== 'error') return null;
@@ -414,24 +602,29 @@ const errorBlock = computed(() => {
   };
 });
 const logCtxData = computed(() => {
-  let logData = props.ctxData;
+  const sourceCtx =
+    props.compareMode && state.activeCompareRun === 'b'
+      ? props.compareCtxData
+      : props.ctxData;
+  let logData = sourceCtx;
   if (logData.ctxData) logData = logData.ctxData;
 
   if (!state.itemId || !logData[state.itemId]) return '';
 
   const data = logData[state.itemId];
   /* eslint-disable-next-line */
-  if (data?.referenceData) getDataSnapshot(data.referenceData);
+  if (data?.referenceData) getDataSnapshot(data.referenceData, sourceCtx);
   const itemLogData =
     state.activeTab === 'all' ? data : objectPath.get(data, state.activeTab);
 
   return JSON.stringify(itemLogData, null, 2);
 });
 
-function getDataSnapshot(refData) {
-  if (!props.ctxData?.dataSnapshot) return;
+function getDataSnapshot(refData, sourceCtxData) {
+  const snapshot = sourceCtxData || props.ctxData;
+  if (!snapshot?.dataSnapshot) return;
 
-  const data = props.ctxData.dataSnapshot;
+  const data = snapshot.dataSnapshot;
   const getData = (key) => {
     const currentData = refData[key];
     if (typeof currentData !== 'string') return currentData;
@@ -443,6 +636,10 @@ function getDataSnapshot(refData) {
   refData.variables = getData('variables');
 }
 function exportLogs(type) {
+  if (props.compareMode) {
+    exportComparisonLogs(type);
+    return;
+  }
   let data = type === 'plain-text' ? '' : [];
   const getItemData = {
     'plain-text': ([
@@ -528,6 +725,68 @@ function exportLogs(type) {
 
   URL.revokeObjectURL(blobUrl);
 }
+function exportComparisonLogs(type) {
+  const fmtTs = (ts) => dayjs(ts || Date.now()).format('DD-MM-YYYY, hh:mm:ss');
+  const rows = buildComparisonExportData(
+    alignedEntries.value,
+    props.ctxData,
+    props.compareCtxData,
+    fmtTs
+  );
+
+  let data;
+  const csvCols = [
+    'blockId',
+    'name',
+    'diff_status',
+    'status_a',
+    'status_b',
+    'message_a',
+    'message_b',
+    'description_a',
+    'description_b',
+    'duration_a',
+    'duration_b',
+    'timestamp_a',
+    'timestamp_b',
+  ];
+
+  switch (type) {
+    case 'plain-text': {
+      let text = '';
+      rows.forEach((r) => {
+        const tag = `[${r.diff_status.toUpperCase()}]`;
+        text += `${tag} ${r.name} | A: ${r.status_a} "${r.message_a}" (${r.duration_a}ms) | B: ${r.status_b} "${r.message_b}" (${r.duration_b}ms)\n`;
+      });
+      data = [text];
+      break;
+    }
+    case 'json':
+      data = [JSON.stringify(rows, null, 2)];
+      break;
+    case 'csv': {
+      const csvRows = [csvCols];
+      rows.forEach((r) => {
+        csvRows.push(csvCols.map((col) => String(r[col] ?? '')));
+      });
+      data = [Papa.unparse(csvRows)];
+      data.unshift(new Uint8Array([0xef, 0xbb, 0xbf]));
+      break;
+    }
+    default:
+      return;
+  }
+
+  const { mime, ext } = files[type];
+  const blobUrl = URL.createObjectURL(new Blob(data, { type: mime }));
+  const compareName = props.compareLog?.name || 'compare';
+  const filename = `[${dayjs().format('DD-MM-YYYY, HH:mm:ss')}] ${
+    props.currentLog.name
+  } vs ${compareName} - compare`;
+
+  fileSaver(`${filename}${ext}`, blobUrl);
+  URL.revokeObjectURL(blobUrl);
+}
 function clearActiveItem() {
   state.itemId = '';
   activeLog.value = null;
@@ -561,8 +820,16 @@ function translateLog(log) {
   return copyLog;
 }
 function setActiveLog(item) {
-  state.itemId = item.id;
-  activeLog.value = item;
+  if (props.compareMode) {
+    activeAlignedEntry.value = item;
+    const entry = item.a || item.b;
+    state.itemId = entry.id;
+    activeLog.value = entry;
+    state.activeCompareRun = item.a ? 'a' : 'b';
+  } else {
+    state.itemId = item.id;
+    activeLog.value = item;
+  }
 }
 function getBlockPath(blockId) {
   const { workflowId, teamId } = props.currentLog;
@@ -575,7 +842,17 @@ function getBlockPath(blockId) {
   return `${path}?blockId=${blockId}`;
 }
 function jumpToError() {
-  pagination.currentPage = Math.ceil(errorBlock.value.id / pagination.perPage);
+  if (props.compareMode) {
+    const idx = filteredAligned.value.findIndex(
+      (e) => e.a?.type === 'error' || e.b?.type === 'error'
+    );
+    if (idx === -1) return;
+    pagination.currentPage = Math.ceil((idx + 1) / pagination.perPage);
+  } else {
+    pagination.currentPage = Math.ceil(
+      errorBlock.value.id / pagination.perPage
+    );
+  }
 
   const element = document.querySelector('#log-history');
   if (!element) return;
@@ -583,6 +860,19 @@ function jumpToError() {
   element.scrollTo(0, element.scrollHeight);
   document.documentElement.scrollTo(0, document.documentElement.scrollHeight);
 }
+
+watch(
+  () => state.activeCompareRun,
+  (run) => {
+    if (!props.compareMode || !activeAlignedEntry.value) return;
+    const entry =
+      run === 'a' ? activeAlignedEntry.value.a : activeAlignedEntry.value.b;
+    if (entry) {
+      state.itemId = entry.id;
+      activeLog.value = entry;
+    }
+  }
+);
 </script>
 <style>
 .ctx-data-table {

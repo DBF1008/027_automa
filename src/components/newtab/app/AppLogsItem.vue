@@ -35,8 +35,46 @@
       >
         <v-remixicon name="riExternalLinkLine" />
       </ui-button>
+      <ui-button
+        v-tooltip="t('log.compare.title')"
+        icon
+        :class="{ 'text-primary': compareMode }"
+        class="mr-4"
+        @click="toggleCompare"
+      >
+        <v-remixicon name="riArrowLeftRightLine" />
+      </ui-button>
       <ui-button class="text-red-500 dark:text-red-400" @click="deleteLog">
         {{ t('common.delete') }}
+      </ui-button>
+    </div>
+    <div
+      v-if="compareMode"
+      class="mt-2 flex items-center rounded-lg bg-gray-100 p-2 dark:bg-gray-800"
+    >
+      <v-remixicon
+        name="riArrowLeftRightLine"
+        size="18"
+        class="mr-2 shrink-0 text-gray-400"
+      />
+      <span class="shrink-0 text-sm text-gray-600 dark:text-gray-300">
+        {{ t('log.compare.selectRun') }}
+      </span>
+      <ui-select v-model="compareLogId" class="ml-3 flex-1">
+        <option value="" disabled>
+          {{ t('log.compare.selectRun') }}
+        </option>
+        <option
+          v-for="log in sameWorkflowLogs"
+          :key="log.id"
+          :value="log.id"
+        >
+          {{ dayjs(log.startedAt).format('DD MMM, HH:mm') }} —
+          {{ t(`log.description.status.${log.status || 'success'}`) }}
+        </option>
+      </ui-select>
+      <ui-button v-if="compareLogId" icon class="ml-2" @click="exitCompare">
+        <v-remixicon name="riCloseLine" size="18" />
       </ui-button>
     </div>
     <ui-tabs v-model="state.activeTab" class="mt-4" @change="onTabChange">
@@ -54,6 +92,9 @@
           :current-log="currentLog"
           :ctx-data="ctxData"
           :parent-log="parentLog"
+          :compare-mode="compareMode && !!compareLog"
+          :compare-log="compareLog"
+          :compare-ctx-data="compareCtxData"
         />
       </ui-tab-panel>
       <ui-tab-panel value="table">
@@ -91,6 +132,11 @@ const workflowStore = useWorkflowStore();
 
 const ctxData = shallowRef({});
 const parentLog = shallowRef(null);
+const compareMode = shallowRef(false);
+const compareLogId = shallowRef('');
+const compareLog = shallowRef(null);
+const compareCtxData = shallowRef({});
+const sameWorkflowLogs = shallowRef([]);
 
 const tabs = [
   { id: 'logs', name: t('common.log', 2) },
@@ -182,8 +228,51 @@ async function fetchLog() {
       (await dbLogs.items.where('id').equals(parentLogId).last()) || null;
   }
 }
+async function toggleCompare() {
+  compareMode.value = !compareMode.value;
+  if (compareMode.value) {
+    const logs = await dbLogs.items
+      .where('workflowId')
+      .equals(currentLog.value.workflowId)
+      .toArray();
+    sameWorkflowLogs.value = logs
+      .filter((l) => l.id !== props.logId)
+      .sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0));
+  } else {
+    exitCompare();
+  }
+}
+function exitCompare() {
+  compareMode.value = false;
+  compareLogId.value = '';
+  compareLog.value = null;
+  compareCtxData.value = {};
+  sameWorkflowLogs.value = [];
+}
+async function fetchCompareLog() {
+  const id = compareLogId.value;
+  if (!id) {
+    compareLog.value = null;
+    compareCtxData.value = {};
+    return;
+  }
+  const logDetail = await dbLogs.items.where('id').equals(id).last();
+  if (!logDetail) return;
+
+  const [logCtxData, logHistory] = await Promise.all([
+    dbLogs.ctxData.where('logId').equals(id).last(),
+    dbLogs.histories.where('logId').equals(id).last(),
+  ]);
+
+  compareCtxData.value = logCtxData?.data || {};
+  compareLog.value = {
+    history: logHistory?.data || [],
+    ...logDetail,
+  };
+}
 
 watch(() => props.logId, fetchLog, { immediate: true });
+watch(compareLogId, fetchCompareLog);
 </script>
 <style>
 .logs-details .cm-editor {
