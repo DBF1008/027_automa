@@ -78,6 +78,7 @@
       :title="t('storage.table.edit')"
       :name="editState.name"
       :columns="editState.columns"
+      :table-data="tableData"
       @save="saveEditedTable"
     />
   </div>
@@ -86,6 +87,7 @@
 import { watch, shallowRef, shallowReactive, toRaw, triggerRef } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
+import { useToast } from 'vue-toastification';
 import { useWorkflowStore } from '@/stores/workflow';
 import { useLiveQuery } from '@/composable/liveQuery';
 import { useDialog } from '@/composable/dialog';
@@ -94,8 +96,15 @@ import { dataExportTypes } from '@/utils/shared';
 import StorageEditTable from '@/components/newtab/storage/StorageEditTable.vue';
 import dbStorage from '@/db/storage';
 import dataExporter from '@/utils/dataExporter';
+import { syncWorkflows } from '@/utils/workflowSync';
+import {
+  safeConvertData,
+  applyFallback,
+  getDefaultForType,
+} from '@/utils/tableMigration';
 
 const { t } = useI18n();
+const toast = useToast();
 const route = useRoute();
 const dialog = useDialog();
 const router = useRouter();
@@ -149,10 +158,13 @@ function exportData(type) {
     true
   );
 }
-async function saveEditedTable({ columns, name, changes }) {
+async function saveEditedTable({ columns, name, changes, migrationPlan }) {
   const columnsChanges = Object.values(changes);
+  const hasMigration = Boolean(migrationPlan);
+  const fallbacks = hasMigration ? migrationPlan.fallbacks || {} : {};
 
   try {
+    // Update table metadata
     await dbStorage.tablesItems.update(tableId, {
       name,
       columns,
@@ -183,34 +195,87 @@ async function saveEditedTable({ columns, name, changes }) {
     }
 
     table.value.header = additionalHeaders(headers);
-    table.value.body = table.value.body.map((item, index) => {
+
+    // Build a working copy of the items
+    let items = tableData.value.items.map((item, index) => ({
+      ...item,
+    }));
+
+    // Phase 1: Apply type conversions (before rename, so we use original column names)
+    const typeChanges = columnsChanges.filter((c) => c.type === 'typeChanged');
+    for (const change of typeChanges) {
+      const fallback = fallbacks[change.id] || { strategy: 'null' };
+      items.forEach((row) => {
+        const oldValue = row[change.name];
+        const conversion = safeConvertData(oldValue, change.newType);
+        if (conversion.success) {
+          row[change.name] = conversion.value;
+        } else {
+          row[change.name] = applyFallback(fallback, oldValue);
+        }
+      });
+    }
+
+    // Phase 2: Remove rows marked for deletion (deleteRow fallback strategy)
+    const rowsToDelete = new Set(hasMigration ? migrationPlan.rowsToDelete : []);
+    if (rowsToDelete.size > 0) {
+      items = items.filter((_, i) => !rowsToDelete.has(i));
+    }
+
+    // Phase 3: Apply rename / delete structural changes
+    items = items.map((item) => {
       columnsChanges.forEach(
         ({ type, oldValue, newValue, name: columnName }) => {
           if (type === 'rename' && objectHasKey(item, oldValue)) {
             item[newValue] = item[oldValue];
-
             delete item[oldValue];
           } else if (type === 'delete') {
             delete item[columnName];
           }
         }
       );
-
-      delete item.$$id;
-      newTableData.push({ ...item });
-      item.$$id = index + 1;
-
       return item;
     });
 
+    // Phase 4: Rebuild table body with $$id
+    table.value.body = items.map((item, index) => ({
+      ...item,
+      $$id: index + 1,
+    }));
+
+    // Phase 5: Strip $$id for storage
+    items.forEach((item) => {
+      delete item.$$id;
+    });
+    newTableData.push(...items);
+
+    // Persist to IndexedDB
     await dbStorage.tablesData.where('tableId').equals(tableId).modify({
       items: newTableData,
       columnsIndex: newColumnsIndex,
     });
 
+    // Sync workflow blocks that reference renamed/deleted columns
+    const syncResult = await syncWorkflows(tableId, changes, workflowStore);
+
+    // Feedback
+    if (syncResult.warnings.length > 0) {
+      toast.warning(
+        `${syncResult.warnings.length} workflow block(s) referenced deleted columns and were updated`
+      );
+    }
+    if (syncResult.updatedWorkflows > 0) {
+      toast.info(
+        `${syncResult.updatedWorkflows} connected workflow(s) synchronized`
+      );
+    }
+    toast.success('Table schema updated successfully');
+
     editState.show = false;
+    triggerRef(table);
   } catch (error) {
     console.error(error);
+    toast.error(`Failed to update table: ${error.message}`);
   }
 }
 function deleteRow(item) {
