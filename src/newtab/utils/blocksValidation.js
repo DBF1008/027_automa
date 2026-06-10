@@ -280,6 +280,41 @@ export async function validateCookie() {
   return [];
 }
 
+export async function validateAiWorkflow(data) {
+  const errors = [];
+  const FILE_TYPES = ['VIDEO', 'IMAGE', 'AUDIO', 'FILE'];
+  const hasMustacheTag = (str) => /\{\{.*?\}\}/.test(str);
+
+  if (isEmptyStr(data.flowUuid || '')) {
+    errors.push('No AI workflow selected');
+  }
+
+  if (data.inputs && data.inputs.length) {
+    for (const input of data.inputs) {
+      if (!input.name) continue;
+
+      if (FILE_TYPES.includes(input.type)) {
+        if (
+          !input.value ||
+          typeof input.value !== 'object' ||
+          !input.value.url
+        ) {
+          errors.push(
+            `File input "${input.label || input.name}" has no file selected`
+          );
+        }
+      } else {
+        const strValue = String(input.value || '');
+        if (isEmptyStr(strValue) && !hasMustacheTag(strValue)) {
+          errors.push(`Input "${input.label || input.name}" is empty`);
+        }
+      }
+    }
+  }
+
+  return errors;
+}
+
 export default {
   trigger: {
     ...defaultOptions,
@@ -397,5 +432,9 @@ export default {
   cookie: {
     ...defaultOptions,
     func: validateCookie,
+  },
+  'ai-workflow': {
+    ...defaultOptions,
+    func: validateAiWorkflow,
   },
 };

@@ -41,7 +41,37 @@
       ></div>
 
       <div class="my-4">
-        <p class="font-semibold">Workflow Inputs</p>
+        <div class="flex items-center justify-between">
+          <p class="font-semibold">Workflow Inputs</p>
+          <ui-button
+            v-if="data.inputs && data.inputs.length && data.flowUuid"
+            variant="default"
+            class="text-sm"
+            @click="savePreset"
+          >
+            <v-remixicon name="riSaveLine" size="14" class="mr-1" />
+            Save Preset
+          </ui-button>
+        </div>
+        <div v-if="presets.length" class="mt-2">
+          <label class="ml-1 text-sm text-gray-600 dark:text-gray-200">
+            Load Preset
+          </label>
+          <div
+            v-for="preset in presets"
+            :key="preset.id"
+            class="flex items-center justify-between rounded-lg px-3 py-2 mt-1 bg-input hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer group"
+            @click="applyPreset(preset)"
+          >
+            <span class="text-sm truncate flex-1">{{ preset.name }}</span>
+            <v-remixicon
+              name="riDeleteBinLine"
+              size="16"
+              class="text-red-400 opacity-0 group-hover:opacity-100 cursor-pointer ml-2 flex-shrink-0"
+              @click.stop="deletePreset(preset.id)"
+            />
+          </div>
+        </div>
         <template v-if="data.inputs && data.inputs.length">
           <div
             v-for="(item, index) in data.inputs"
@@ -151,7 +181,12 @@
   </div>
 </template>
 
+<script>
+const flowDetailCache = new Map();
+</script>
+
 <script setup>
+import { useDialog } from '@/composable/dialog';
 import UiFileInput from '@/components/ui/UiFileInput.vue';
 import UiInput from '@/components/ui/UiInput.vue';
 import UiPaginatedSelect from '@/components/ui/UiPaginatedSelect.vue';
@@ -162,12 +197,14 @@ import {
   postUploadFile,
 } from '@/utils/getAIPoweredInfo';
 import cloneDeep from 'lodash.clonedeep';
+import { nanoid } from 'nanoid';
 import secrets from 'secrets';
 import {
   computed,
   defineEmits,
   defineProps,
   shallowReactive,
+  shallowRef,
   watch,
 } from 'vue';
 import { useRoute } from 'vue-router';
@@ -176,6 +213,8 @@ import browser from 'webextension-polyfill';
 import InsertWorkflowData from './InsertWorkflowData.vue';
 
 const toast = useToast();
+const dialog = useDialog();
+const presets = shallowRef([]);
 
 const props = defineProps({
   data: {
@@ -297,9 +336,7 @@ const saveAIPowerToken = () => {
   });
   state.showAIPowerTokenModal = false;
 
-  // When token changes, the previous selection is no longer valid.
-  // Clearing it will also reset the inputs/outputs.
-  // The UiPaginatedSelect component will re-initialize because its `key` has changed.
+  flowDetailCache.clear();
   clearInputsAndOutputs();
 };
 
@@ -312,6 +349,81 @@ const onInputParamsChange = (item, index, value) => {
   newInputs[index].value = value;
   updateData({ inputs: newInputs });
 };
+
+async function loadPresets() {
+  const token = aiPowerToken.value;
+  const flowUuid = props.data.flowUuid;
+  if (!token || !flowUuid) {
+    presets.value = [];
+    return;
+  }
+  const storage = await browser.storage.local.get('aiWorkflowPresets');
+  const allPresets = storage.aiWorkflowPresets || {};
+  const tokenPresets = allPresets[token] || [];
+  presets.value = tokenPresets.filter((p) => p.flowUuid === flowUuid);
+}
+
+function savePreset() {
+  dialog.prompt({
+    title: 'Save Input Preset',
+    placeholder: 'Preset name...',
+    okText: 'Save',
+    onConfirm: async (name) => {
+      if (!name || !name.trim()) return false;
+
+      const storage = await browser.storage.local.get('aiWorkflowPresets');
+      const allPresets = storage.aiWorkflowPresets || {};
+      const token = aiPowerToken.value;
+      if (!allPresets[token]) {
+        allPresets[token] = [];
+      }
+
+      allPresets[token].push({
+        id: nanoid(),
+        name: name.trim(),
+        flowUuid: props.data.flowUuid,
+        flowLabel: props.data.flowLabel,
+        inputs: cloneDeep(props.data.inputs),
+        createdAt: Date.now(),
+      });
+
+      await browser.storage.local.set({ aiWorkflowPresets: allPresets });
+      await loadPresets();
+      toast.success('Preset saved');
+      return true;
+    },
+  });
+}
+
+function applyPreset(preset) {
+  const currentInputs = cloneDeep(props.data.inputs);
+  for (const currentInput of currentInputs) {
+    const presetInput = preset.inputs.find((p) => p.name === currentInput.name);
+    if (presetInput) {
+      currentInput.value = presetInput.value;
+    }
+  }
+  updateData({ inputs: currentInputs });
+  toast.success(`Preset "${preset.name}" loaded`);
+}
+
+function deletePreset(presetId) {
+  dialog.confirm({
+    title: 'Delete Preset',
+    body: 'Are you sure you want to delete this preset?',
+    okText: 'Delete',
+    okVariant: 'danger',
+    onConfirm: async () => {
+      const storage = await browser.storage.local.get('aiWorkflowPresets');
+      const allPresets = storage.aiWorkflowPresets || {};
+      const token = aiPowerToken.value;
+      const tokenPresets = allPresets[token] || [];
+      allPresets[token] = tokenPresets.filter((p) => p.id !== presetId);
+      await browser.storage.local.set({ aiWorkflowPresets: allPresets });
+      await loadPresets();
+    },
+  });
+}
 
 watch(
   () => props.data.flowUuid,
@@ -326,12 +438,28 @@ watch(
 
     if (newVal === oldVal) return;
 
+    const cacheKey = `${aiPowerToken.value}::${newVal}`;
+    const cached = flowDetailCache.get(cacheKey);
+    if (cached) {
+      updateData({
+        inputs: cloneDeep(cached.inputs),
+        outputs: cloneDeep(cached.outputs),
+      });
+      loadPresets();
+      return;
+    }
+
     getAPWorkflowDetail(newVal, aiPowerToken.value).then((res) => {
       if (res.success) {
+        flowDetailCache.set(cacheKey, {
+          inputs: cloneDeep(res.data.inputs),
+          outputs: cloneDeep(res.data.outputs),
+        });
         updateData({
           inputs: res.data.inputs,
           outputs: res.data.outputs,
         });
+        loadPresets();
       } else {
         clearInputsAndOutputs();
         toast.error(`Failed to fetch AI Power workflow detail: ${res.msg}`);
@@ -339,4 +467,8 @@ watch(
     });
   }
 );
+
+if (props.data.flowUuid && aiPowerToken.value) {
+  loadPresets();
+}
 </script>

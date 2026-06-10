@@ -18,6 +18,12 @@ async function aiWorkflow(block, { refData }) {
     throw new Error('AI Power token is not set');
   }
 
+  if (!flowUuid) {
+    throw new Error(
+      'No AI workflow selected. Please select a workflow in the block settings.'
+    );
+  }
+
   const inputForAPI = {};
   for (const item of inputs) {
     if (typeof item.value === 'object' && item.value !== null) {
@@ -33,6 +39,30 @@ async function aiWorkflow(block, { refData }) {
       );
       inputForAPI[item.name] = renderedValue.value;
       Object.assign(replacedValueList, renderedValue.list);
+    }
+  }
+
+  const FILE_TYPES = ['VIDEO', 'IMAGE', 'AUDIO', 'FILE'];
+  for (const item of inputs) {
+    if (!item.name) continue;
+
+    if (FILE_TYPES.includes(item.type)) {
+      if (
+        !item.value ||
+        typeof item.value !== 'object' ||
+        !item.value.url
+      ) {
+        throw new Error(
+          `File input "${item.label || item.name}" has no file. Please upload a file before running.`
+        );
+      }
+    } else {
+      const rendered = inputForAPI[item.name];
+      if (typeof rendered === 'string' && !rendered.trim()) {
+        throw new Error(
+          `Input "${item.label || item.name}" resolved to an empty value. Please provide a value.`
+        );
+      }
     }
   }
 
