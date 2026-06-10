@@ -46,7 +46,26 @@
       "createdAt": "Created at",
       "modifiedAt": "Modified at",
       "rowsCount": "Rows count",
-      "delete": "Delete table"
+      "delete": "Delete table",
+      "migration": {
+        "title": "Migration preview",
+        "back": "Back",
+        "confirm": "Confirm",
+        "noChanges": "No schema changes detected",
+        "added": "Added columns",
+        "renamed": "Renamed columns",
+        "deleted": "Deleted columns",
+        "typeChanges": "Type changes",
+        "rowsAffected": "{count} rows affected",
+        "valuesLost": "{count} non-null values will be lost",
+        "convertible": "{count} convertible",
+        "willFail": "{count} will fail",
+        "sampleFailures": "Sample failures",
+        "onFailure": "On conversion failure:",
+        "setNull": "Set to null",
+        "keepOriginal": "Keep original value",
+        "setDefault": "Set custom default"
+      }
     }
   },
   "credential": {

@@ -78,6 +78,7 @@
       :title="t('storage.table.edit')"
       :name="editState.name"
       :columns="editState.columns"
+      :items="tableData?.items || []"
       @save="saveEditedTable"
     />
   </div>
@@ -89,8 +90,8 @@ import { useI18n } from 'vue-i18n';
 import { useWorkflowStore } from '@/stores/workflow';
 import { useLiveQuery } from '@/composable/liveQuery';
 import { useDialog } from '@/composable/dialog';
-import { objectHasKey } from '@/utils/helper';
 import { dataExportTypes } from '@/utils/shared';
+import { applyMigration } from '@/utils/tableMigration';
 import StorageEditTable from '@/components/newtab/storage/StorageEditTable.vue';
 import dbStorage from '@/db/storage';
 import dataExporter from '@/utils/dataExporter';
@@ -149,28 +150,23 @@ function exportData(type) {
     true
   );
 }
-async function saveEditedTable({ columns, name, changes }) {
-  const columnsChanges = Object.values(changes);
-
+async function saveEditedTable({
+  columns,
+  name,
+  changes,
+  fallbackStrategies,
+  migrationReport,
+}) {
   try {
-    await dbStorage.tablesItems.update(tableId, {
-      name,
-      columns,
-    });
+    await dbStorage.tablesItems.update(tableId, { name, columns });
 
     const headers = [];
-    const newTableData = [];
     const newColumnsIndex = {};
     const { columnsIndex } = tableData.value;
 
     columns.forEach(({ name: columnName, id, type }) => {
       const index = columnsIndex[id]?.index || 0;
-
-      newColumnsIndex[id] = {
-        type,
-        index,
-        name: columnName,
-      };
+      newColumnsIndex[id] = { type, index, name: columnName };
       headers.push({
         text: columnName,
         value: columnName,
@@ -182,31 +178,30 @@ async function saveEditedTable({ columns, name, changes }) {
       newColumnsIndex.column = toRaw(columnsIndex.column);
     }
 
+    const newTableData = applyMigration(
+      tableData.value.items,
+      Object.values(changes),
+      migrationReport?.typeChanged || [],
+      fallbackStrategies || {}
+    );
+
     table.value.header = additionalHeaders(headers);
-    table.value.body = table.value.body.map((item, index) => {
-      columnsChanges.forEach(
-        ({ type, oldValue, newValue, name: columnName }) => {
-          if (type === 'rename' && objectHasKey(item, oldValue)) {
-            item[newValue] = item[oldValue];
-
-            delete item[oldValue];
-          } else if (type === 'delete') {
-            delete item[columnName];
-          }
-        }
-      );
-
-      delete item.$$id;
-      newTableData.push({ ...item });
-      item.$$id = index + 1;
-
-      return item;
-    });
+    table.value.body = newTableData.map((item, i) => ({
+      ...item,
+      $$id: i + 1,
+    }));
 
     await dbStorage.tablesData.where('tableId').equals(tableId).modify({
       items: newTableData,
       columnsIndex: newColumnsIndex,
     });
+
+    const workflows = workflowStore.getWorkflows.filter(
+      (w) => w.connectedTable === tableId
+    );
+    for (const wf of workflows) {
+      await workflowStore.update({ id: wf.id, data: { table: columns } });
+    }
 
     editState.show = false;
   } catch (error) {
